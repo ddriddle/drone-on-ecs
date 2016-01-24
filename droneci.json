@@ -1,0 +1,375 @@
+{
+    "Description": "Drone Continuous Integration (drone.io)",
+
+    "Parameters": {
+        "VPC": {
+            "Type": "AWS::EC2::VPC::Id",
+            "Description": "The VPC that needs provisioning"
+        },
+        "Subnets": {
+            "Type": "List<AWS::EC2::Subnet::Id>",
+            "Description": "The subnets that the load balancer will cover",
+        },
+        "KeyName": {
+            "Type": "String",
+            "Description": "Name of an AWS keypair to use on instances"
+        },
+
+        "DroneRemoteConfig": {
+            "Type": "String",
+            "Description": "The remote config value for Drone",
+            "NoEcho": true
+        },
+        "DroneRemoteDriver": {
+            "Type": "String",
+            "Description": "The remote driver value for Drone"
+        },
+
+        "DroneMemoryAllocation": {
+          "Type": "Integer",
+          "Description": "The amount of memory to allocate to the Drone container",
+          "Default": 1024
+        },
+        "DroneCpuUnits": {
+          "Type": "Integer",
+          "Description": "How many CPU units to allocate to the Drone container",
+          "Default": 512
+        },
+        "DroneInstanceType": {
+          "Type": "String",
+          "Description": "The EC2 instance type to build",
+          "Default": "m4.large"
+        },
+
+        "IncomingHttpCidr": {
+          "Type": "String",
+          "Description": "A CIDR range to restrict incoming HTTP to the load balancer",
+          "Default": "0.0.0.0/0"
+        }
+    },
+
+    "Mappings" : {
+        "AWSRegionToAMI" : {
+            "us-east-1":      {"AMIID": "ami-cb2305a1"},
+            "us-west-1":      {"AMIID": "ami-bdafdbdd"},
+            "us-west-2":      {"AMIID": "ami-ec75908c"},
+            "eu-west-1":      {"AMIID": "ami-13f84d60"},
+            "ap-northeast-1": {"AMIID": "ami-e9724c87"},
+            "ap-southeast-2": {"AMIID": "ami-5f31fd3c"},
+            "ap-southeast-1": {"AMIID": "ami-83af8ae0"},
+            "eu-central-1":   {"AMIID": "ami-c3253caf"}
+        }
+    },
+
+    "Resources": {
+        "Cluster": {
+            "Type": "AWS::ECS::Cluster"
+        },
+
+        "TaskDefinition": {
+            "Type": "AWS::ECS::TaskDefinition",
+            "Properties": {
+                "ContainerDefinitions": [{
+                    "Name": "Drone",
+                    "Essential": true,
+                    "Image": "drone/drone",
+                    "Memory": {"Ref": "DroneMemoryAllocation"},
+                    "Cpu": {"Ref": "DroneCpuUnits"},
+                    "PortMappings": [{
+                        "HostPort": 80,
+                        "ContainerPort": 8000
+                    }],
+                    "MountPoints": [
+                        {
+                            "ContainerPath": "/var/lib/drone",
+                            "SourceVolume": "drone-volume"
+                        },
+                        {
+                            "ContainerPath": "/var/run/docker.sock",
+                            "SourceVolume": "docker-socket"
+                        }
+                    ],
+                    "Environment": [
+                        {"Name": "REMOTE_CONFIG", "Value": {"Ref": "DroneRemoteConfig"}},
+                        {"Name": "REMOTE_DRIVER", "Value": {"Ref": "DroneRemoteDriver"}}
+                    ]
+                }],
+                "Volumes": [
+                    {
+                        "Name": "drone-volume",
+                        "Host": {
+                            "SourcePath": "/var/lib/drone"
+                        }
+                    },
+                    {
+                        "Name": "docker-socket",
+                        "Host": {
+                            "SourcePath": "/var/run/docker.sock"
+                        }
+                    }
+                ]
+            }
+        },
+
+        "LoadBalancerSecurityGroup": {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription": "Security associated to the Drone load balancer",
+                "VpcId": {"Ref": "VPC"},
+                "SecurityGroupIngress": [
+                    {
+                        "FromPort": 80,
+                        "ToPort": 80,
+                        "IpProtocol": "tcp",
+                        "CidrIp": {"Ref": "IncomingHttpCidr"}
+                    }
+                ],
+                "Tags": [
+                    {"Key": "Name", "Value": "droneci-loadbalancer-sg"}
+                ]
+            }
+        },
+
+        "InstanceSecurityGroup": {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription": "Only allow traffic via the Drone load balancer",
+                "SecurityGroupIngress": [
+                    {
+                       "FromPort": 80,
+                       "IpProtocol": "tcp",
+                       "SourceSecurityGroupId": {"Ref": "LoadBalancerSecurityGroup"},
+                       "ToPort": 80
+                   }
+                ],
+                "VpcId": {"Ref": "VPC"},
+                "Tags": [
+                    {"Key": "Name", "Value": "droneci-instance-sg"}
+                ]
+            }
+        },
+
+        "InstanceRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": ["ec2.amazonaws.com"]
+                            },
+                            "Action": ["sts:AssumeRole"]
+                        }
+                    ]
+                },
+                "Path": "/",
+                "Policies": [
+                    {
+                        "PolicyName": "droneci-ecs-instance-role",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "ecs:DeregisterContainerInstance",
+                                        "ecs:DiscoverPollEndpoint",
+                                        "ecs:Poll",
+                                        "ecs:RegisterContainerInstance",
+                                        "ecs:StartTelemetrySession",
+                                        "ecs:Submit*",
+                                        "ecr:GetAuthorizationToken",
+                                        "ecr:BatchCheckLayerAvailability",
+                                        "ecr:GetDownloadUrlForLayer",
+                                        "ecr:BatchGetImage"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+
+        "ServiceRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Statement": [{
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": ["ecs.amazonaws.com"]
+                        },
+                        "Action": ["sts:AssumeRole"]
+                    }]
+                },
+                "Policies": [
+                    {
+                        "PolicyName": "droneci-ecs-service-role",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [{
+                                "Effect": "Allow",
+                                "Action": [
+                                    "ec2:AuthorizeSecurityGroupIngress",
+                                    "ec2:Describe*",
+                                    "elasticloadbalancing:DeregisterInstancesFromLoadBalancer",
+                                    "elasticloadbalancing:Describe*",
+                                    "elasticloadbalancing:RegisterInstancesWithLoadBalancer"
+                                ],
+                                "Resource": "*"
+                            }]
+                        }
+                    }
+                ]
+            }
+        },
+
+        "InstanceProfile": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+                "Path": "/",
+                "Roles": [{"Ref": "InstanceRole"}]
+            }
+        },
+
+        "LoadBalancer": {
+            "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Properties": {
+                "CrossZone": true,
+                "Subnets": {"Ref": "Subnets"},
+                "Listeners": [{
+                    "InstancePort": "80",
+                    "InstanceProtocol": "HTTP",
+                    "LoadBalancerPort": "80",
+                    "Protocol": "HTTP"
+                }],
+                "SecurityGroups": [
+                    {"Ref": "LoadBalancerSecurityGroup"}
+                ],
+                "Tags": [
+                    {"Key": "Name", "Value": "droneci-loadbalancer"}
+                ]
+            }
+        },
+
+        "LaunchConfiguration": {
+            "Type": "AWS::AutoScaling::LaunchConfiguration",
+            "Metadata": {
+                "AWS::CloudFormation::Init": {
+                    "config": {
+                        "commands" : {
+                            "01_add_instance_to_cluster" : {
+                                "command": {"Fn::Join": ["", [
+                                    "#!/bin/bash\n",
+                                    "echo ECS_CLUSTER=", {"Ref": "Cluster"}, " >> /etc/ecs/ecs.config"
+                                ]]}
+                            }
+                        },
+                        "files": {
+                            "/etc/cfn/cfn-hup.conf": {
+                                "content": {"Fn::Join": ["", [
+                                    "[main]\n",
+                                    "stack=", {"Ref": "AWS::StackId" }, "\n",
+                                    "region=", {"Ref": "AWS::Region" }, "\n"
+                                ]]},
+                                "mode": "000400",
+                                "owner": "root",
+                                "group": "root"
+                            },
+                            "/etc/cfn/hooks.d/cfn-auto-reloader.conf": {
+                                "content": {"Fn::Join" :["", [
+                                    "[cfn-auto-reloader-hook]\n",
+                                    "triggers=post.update\n",
+                                    "path=Resources.LaunchConfiguration.Metadata.AWS::CloudFormation::Init\n",
+                                    "action=/opt/aws/bin/cfn-init -v ",
+                                    "         --stack ", {"Ref": "AWS::StackName"},
+                                    "         --resource LaunchConfiguration ",
+                                    "         --region ", {"Ref": "AWS::Region"}, "\n",
+                                    "runas=root\n"
+                                ]]}
+                            }
+                        },
+                        "services": {
+                            "sysvinit": {
+                                "cfn-hup": {
+                                    "enabled": "true",
+                                    "ensureRunning": "true",
+                                    "files": [
+                                        "/etc/cfn/cfn-hup.conf",
+                                        "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "Properties": {
+                "AssociatePublicIpAddress": true,
+                "IamInstanceProfile": {"Ref": "InstanceProfile"},
+                "ImageId": {"Fn::FindInMap": ["AWSRegionToAMI", {"Ref" : "AWS::Region"}, "AMIID"]},
+                "InstanceType": {"Ref": "DroneInstanceType"},
+                "KeyName": {"Ref": "KeyName"},
+                "SecurityGroups": [
+                    {"Ref": "InstanceSecurityGroup"}
+                ],
+                "UserData": {"Fn::Base64": {"Fn::Join": ["", [
+                     "#!/bin/bash -xe\n",
+                     "yum install -y aws-cfn-bootstrap\n",
+
+                     "/opt/aws/bin/cfn-init -v ",
+                     "         --stack ", { "Ref" : "AWS::StackName" },
+                     "         --resource LaunchConfiguration ",
+                     "         --region ", { "Ref" : "AWS::Region" }, "\n",
+
+                     "/opt/aws/bin/cfn-signal -e $? ",
+                     "         --stack ", { "Ref" : "AWS::StackName" },
+                     "         --resource AutoScalingGroup ",
+                     "         --region ", { "Ref" : "AWS::Region" }, "\n"
+                ]]}}
+            }
+        },
+
+        "AutoScalingGroup": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+            "Properties": {
+                "DesiredCapacity": "1",
+                "MaxSize": "1",
+                "MinSize": "1",
+                "HealthCheckType": "EC2",
+                "LaunchConfigurationName": {"Ref": "LaunchConfiguration"},
+                "VPCZoneIdentifier": {"Ref": "Subnets"},
+                "Tags": [
+                    {"Key": "Name", "Value": "droneci", "PropagateAtLaunch": true}
+                ]
+            }
+        },
+
+        "Service": {
+            "Type": "AWS::ECS::Service",
+            "DependsOn": ["AutoScalingGroup"],
+            "Properties": {
+                "Cluster": {"Ref": "Cluster"},
+                "DesiredCount": 1,
+                "LoadBalancers": [{
+                    "ContainerName": "Drone",
+                    "ContainerPort": "8000",
+                    "LoadBalancerName" : {"Ref": "LoadBalancer"}
+                }],
+                "Role": {"Ref": "ServiceRole"},
+                "TaskDefinition": {"Ref": "TaskDefinition"}
+            }
+        }
+    },
+
+    "Outputs": {
+        "OAuthEndpoint": {
+            "Value": {"Fn::Join": ["", [
+                "http://", {"Fn::GetAtt": ["LoadBalancer", "DNSName"]}, "/authorize"
+            ]]}
+        }
+    }
+}
