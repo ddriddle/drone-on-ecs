@@ -1,6 +1,8 @@
 Drone on ECS
 ============
 
+:Author: Darren Coxall (https://github.com/dcoxall)
+
 This repository serves as an example of how to get a fully functioning [Drone
 CI][drone] container running on [AWS EC2 Container Service][ecs]. The method
 selected for this is to use [CloudFormation][cloudformation] which makes it easy
