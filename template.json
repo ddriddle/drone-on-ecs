@@ -11,7 +11,7 @@
             "Description": "The subnets that the load balancer will cover",
         },
         "KeyName": {
-            "Type": "String",
+            "Type": "AWS::EC2::KeyPair::KeyName",
             "Description": "Name of an AWS keypair to use on instances"
         },
 
