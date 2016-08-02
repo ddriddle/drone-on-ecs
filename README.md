@@ -80,7 +80,8 @@ With your parameters defined you can now execute...
     $ aws cloudformation create-stack --stack-name drone-ci \
             --template-body file://template.json \
             --parameters file://params.json \
-            --capabilities CAPABILITY_IAM
+            --capabilities CAPABILITY_IAM \
+            --tags Key=Name,Value=drone,Key=netid,Value=your_netid
 
 In the AWS console you will now see cloudformation provisioning your new Drone
 setup. Once complete you can check the outputs of the stack to help you

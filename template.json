@@ -8,7 +8,7 @@
         },
         "Subnets": {
             "Type": "List<AWS::EC2::Subnet::Id>",
-            "Description": "The subnets that the load balancer will cover",
+            "Description": "The subnets that the load balancer will cover"
         },
         "KeyName": {
             "Type": "AWS::EC2::KeyPair::KeyName",
@@ -26,12 +26,12 @@
         },
 
         "DroneMemoryAllocation": {
-          "Type": "Integer",
+          "Type": "Number",
           "Description": "The amount of memory to allocate to the Drone container",
           "Default": 1024
         },
         "DroneCpuUnits": {
-          "Type": "Integer",
+          "Type": "Number",
           "Description": "How many CPU units to allocate to the Drone container",
           "Default": 512
         },

@@ -1,0 +1,22 @@
+[
+   {
+      "ParameterKey":"VPC",
+      "ParameterValue":"[VPC ID]"
+   },
+   {
+      "ParameterKey":"Subnets",
+      "ParameterValue":"[CSV LIST OF SUBNET IDS]"
+   },
+   {
+      "ParameterKey":"KeyName",
+      "ParameterValue":"[KEYPAIR NAME]"
+   },
+   {
+      "ParameterKey":"DroneRemoteDriver",
+      "ParameterValue":"[DRONE REMOTE_DRIVER VALUE]"
+   },
+   {
+      "ParameterKey":"DroneRemoteConfig",
+      "ParameterValue":"[DRONE REMOTE_CONFIG VALUE]"
+   }
+]
